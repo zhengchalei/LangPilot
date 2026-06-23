@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:langpilot/models/model_settings.dart';
 import 'package:langpilot/services/correction_service.dart';
+import 'package:langpilot/services/local_model_manager.dart';
 
 void main() {
   const settings = ModelSettings(
@@ -101,6 +102,28 @@ void main() {
           (error) => error.message,
           'message',
           contains('invalid api key'),
+        ),
+      ),
+    );
+  });
+
+  test('surfaces unsupported local Qwen runtime messages', () async {
+    final service = CorrectionService(
+      localModelManager: const UnsupportedLocalModelManager(
+        LocalModelPackaging.web,
+      ),
+    );
+
+    expect(
+      () => service.correctText(
+        text: 'I has a useful idea.',
+        settings: const ModelSettings(provider: ModelProvider.localQwen),
+      ),
+      throwsA(
+        isA<CorrectionException>().having(
+          (error) => error.message,
+          'message',
+          contains('Web 打包不支持本地 Qwen 模型下载或推理'),
         ),
       ),
     );

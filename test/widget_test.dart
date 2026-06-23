@@ -126,6 +126,59 @@ void main() {
     expect(find.text('I have a clear plan.'), findsOneWidget);
   });
 
+  testWidgets('auto recommend delay comes from saved settings', (tester) async {
+    final client = _FakeCorrectionClient();
+    final controller = LangPilotController(
+      correctionClient: client,
+      settingsStore: _FakeSettingsStore(
+        settings: const ModelSettings(
+          baseUrl: 'https://api.example.com/v1',
+          apiKey: 'test-key',
+          model: 'fast-model',
+          autoRecommendDelayMs: 700,
+        ),
+      ),
+    );
+    await controller.loadSettings();
+
+    await tester.pumpWidget(LangPilotApp(controller: controller));
+
+    await tester.tap(find.byKey(const Key('auto_recommend_switch')));
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const Key('input_editor')),
+      'I has another plan.',
+    );
+    await tester.pump(const Duration(milliseconds: 650));
+
+    expect(client.callCount, 0);
+
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
+
+    expect(client.callCount, 1);
+  });
+
+  testWidgets('local Qwen settings show unsupported web download clearly', (
+    tester,
+  ) async {
+    final controller = LangPilotController(
+      correctionClient: _FakeCorrectionClient(),
+      settingsStore: _FakeSettingsStore(),
+    );
+    await controller.loadSettings();
+
+    await tester.pumpWidget(LangPilotApp(controller: controller));
+
+    await tester.tap(find.byKey(const Key('settings_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('本地 Qwen'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Web 打包不支持本地 Qwen 模型下载或推理'), findsOneWidget);
+    expect(find.text('不支持下载'), findsOneWidget);
+  });
+
   testWidgets('auto recommend requests only changed paragraph after baseline', (
     tester,
   ) async {
@@ -299,13 +352,19 @@ class _FakeCorrectionClient implements CorrectionClient {
 }
 
 class _FakeSettingsStore implements SettingsStore {
-  @override
-  Future<ModelSettings> load() async {
-    return const ModelSettings(
+  _FakeSettingsStore({
+    this.settings = const ModelSettings(
       baseUrl: 'https://api.example.com/v1',
       apiKey: 'test-key',
       model: 'fast-model',
-    );
+    ),
+  });
+
+  final ModelSettings settings;
+
+  @override
+  Future<ModelSettings> load() async {
+    return settings;
   }
 
   @override

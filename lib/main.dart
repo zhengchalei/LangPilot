@@ -6,8 +6,11 @@ import 'package:flutter/services.dart';
 
 import 'app_controller.dart';
 import 'models/correction_result.dart';
+import 'models/local_model_catalog.dart';
 import 'models/model_settings.dart';
 import 'services/correction_service.dart';
+import 'services/local_model_manager.dart';
+import 'services/local_model_manager_factory.dart';
 import 'services/settings_store.dart';
 import 'utils/incremental_paragraph.dart';
 import 'utils/text_diff.dart';
@@ -55,15 +58,20 @@ class _LangPilotBootstrap extends StatefulWidget {
 
 class _LangPilotBootstrapState extends State<_LangPilotBootstrap> {
   late final CorrectionService _correctionService;
+  late final LocalModelManager _localModelManager;
   late final LangPilotController _controller;
 
   @override
   void initState() {
     super.initState();
-    _correctionService = CorrectionService();
+    _localModelManager = createLocalModelManager();
+    _correctionService = CorrectionService(
+      localModelManager: _localModelManager,
+    );
     _controller = LangPilotController(
       correctionClient: _correctionService,
       settingsStore: LocalSettingsStore(),
+      localModelManager: _localModelManager,
     );
     _controller.loadSettings();
   }
@@ -153,6 +161,21 @@ class _LangPilotHomeState extends State<LangPilotHome> {
       }
       await _openSettings();
       if (!mounted || !widget.controller.settings.isComplete) return;
+    }
+
+    if (widget.controller.settings.isLocalQwen) {
+      final localStatus = await widget.controller.getLocalModelStatus(
+        widget.controller.settings.localModelId,
+      );
+      if (!mounted) {
+        return;
+      }
+      if (!localStatus.isReady) {
+        if (!automatic) {
+          _showActionFeedback(localStatus.message);
+        }
+        return;
+      }
     }
 
     if (!automatic) {
@@ -304,7 +327,7 @@ class _LangPilotHomeState extends State<LangPilotHome> {
     }
 
     _autoRecommendTimer = Timer(
-      const Duration(seconds: 2),
+      widget.controller.settings.autoRecommendDelay,
       _triggerAutoRecommend,
     );
   }
@@ -373,6 +396,9 @@ class _LangPilotHomeState extends State<LangPilotHome> {
       context: context,
       builder: (context) => _SettingsDialog(controller: widget.controller),
     );
+    if (mounted && _autoRecommendEnabled) {
+      _scheduleAutoRecommend();
+    }
   }
 
   @override
@@ -445,6 +471,8 @@ class _LangPilotHomeState extends State<LangPilotHome> {
                         actionStatus: _actionStatus ?? _requestScopeStatus,
                         isResultStale: _isResultStale,
                         autoRecommendEnabled: _autoRecommendEnabled,
+                        autoRecommendDelay:
+                            widget.controller.settings.autoRecommendDelay,
                         onSubmit: _submit,
                         onAutoRecommendChanged: _setAutoRecommendEnabled,
                         onCopy: _copySuggestion,
@@ -470,6 +498,7 @@ class _Workspace extends StatelessWidget {
     required this.actionStatus,
     required this.isResultStale,
     required this.autoRecommendEnabled,
+    required this.autoRecommendDelay,
     required this.onSubmit,
     required this.onAutoRecommendChanged,
     required this.onCopy,
@@ -485,6 +514,7 @@ class _Workspace extends StatelessWidget {
   final String? actionStatus;
   final bool isResultStale;
   final bool autoRecommendEnabled;
+  final Duration autoRecommendDelay;
   final VoidCallback onSubmit;
   final ValueChanged<bool> onAutoRecommendChanged;
   final ValueChanged<CorrectionSuggestion> onCopy;
@@ -514,6 +544,7 @@ class _Workspace extends StatelessWidget {
                     inputFocusNode: inputFocusNode,
                     isWide: true,
                     autoRecommendEnabled: autoRecommendEnabled,
+                    autoRecommendDelay: autoRecommendDelay,
                     onSubmit: onSubmit,
                     onAutoRecommendChanged: onAutoRecommendChanged,
                   ),
@@ -548,6 +579,7 @@ class _Workspace extends StatelessWidget {
                 inputFocusNode: inputFocusNode,
                 isWide: false,
                 autoRecommendEnabled: autoRecommendEnabled,
+                autoRecommendDelay: autoRecommendDelay,
                 onSubmit: onSubmit,
                 onAutoRecommendChanged: onAutoRecommendChanged,
               ),
@@ -578,6 +610,7 @@ class _InputPane extends StatelessWidget {
     required this.inputFocusNode,
     required this.isWide,
     required this.autoRecommendEnabled,
+    required this.autoRecommendDelay,
     required this.onSubmit,
     required this.onAutoRecommendChanged,
   });
@@ -587,6 +620,7 @@ class _InputPane extends StatelessWidget {
   final FocusNode inputFocusNode;
   final bool isWide;
   final bool autoRecommendEnabled;
+  final Duration autoRecommendDelay;
   final VoidCallback onSubmit;
   final ValueChanged<bool> onAutoRecommendChanged;
 
@@ -639,6 +673,7 @@ class _InputPane extends StatelessWidget {
                       const SizedBox(width: 12),
                       _AutoRecommendSwitch(
                         value: autoRecommendEnabled,
+                        delay: autoRecommendDelay,
                         onChanged: onAutoRecommendChanged,
                       ),
                       const SizedBox(width: 8),
@@ -802,15 +837,20 @@ class _ResultPane extends StatelessWidget {
 }
 
 class _AutoRecommendSwitch extends StatelessWidget {
-  const _AutoRecommendSwitch({required this.value, required this.onChanged});
+  const _AutoRecommendSwitch({
+    required this.value,
+    required this.delay,
+    required this.onChanged,
+  });
 
   final bool value;
+  final Duration delay;
   final ValueChanged<bool> onChanged;
 
   @override
   Widget build(BuildContext context) {
     return Tooltip(
-      message: '停止编辑 2 秒后自动推荐',
+      message: '停止编辑 ${_formatSeconds(delay)} 秒后自动推荐',
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: value ? const Color(0xffe6f2ec) : const Color(0xffeef1f4),
@@ -849,6 +889,14 @@ class _AutoRecommendSwitch extends StatelessWidget {
       ),
     );
   }
+}
+
+String _formatSeconds(Duration duration) {
+  final seconds = duration.inMilliseconds / 1000;
+  if (seconds == seconds.roundToDouble()) {
+    return seconds.toStringAsFixed(0);
+  }
+  return seconds.toStringAsFixed(1);
 }
 
 class _SuggestionCard extends StatefulWidget {
@@ -1315,24 +1363,44 @@ class _SettingsDialogState extends State<_SettingsDialog> {
   late final TextEditingController _baseUrlController;
   late final TextEditingController _modelController;
   late final TextEditingController _apiKeyController;
+  late final TextEditingController _localTokenController;
+  late final TextEditingController _autoDelayController;
   late final Listenable _fieldListenable;
+  late ModelProvider _provider;
+  late String _localModelId;
   bool _obscureKey = true;
+  bool _obscureLocalToken = true;
   bool _isTesting = false;
   bool _isSaving = false;
+  bool _isLoadingLocalStatus = false;
+  bool _isDownloadingLocalModel = false;
+  double? _downloadProgress;
+  LocalModelStatus? _localModelStatus;
   String? _testMessage;
 
   @override
   void initState() {
     super.initState();
     final settings = widget.controller.settings;
+    _provider = settings.provider;
     _baseUrlController = TextEditingController(text: settings.baseUrl);
     _modelController = TextEditingController(text: settings.model);
     _apiKeyController = TextEditingController(text: settings.apiKey);
+    _localTokenController = TextEditingController(
+      text: settings.localModelAccessToken,
+    );
+    _localModelId = settings.localModelId;
+    _autoDelayController = TextEditingController(
+      text: _formatSeconds(settings.autoRecommendDelay),
+    );
     _fieldListenable = Listenable.merge([
       _baseUrlController,
       _modelController,
       _apiKeyController,
+      _localTokenController,
+      _autoDelayController,
     ]);
+    _loadLocalStatus();
   }
 
   @override
@@ -1340,14 +1408,95 @@ class _SettingsDialogState extends State<_SettingsDialog> {
     _baseUrlController.dispose();
     _modelController.dispose();
     _apiKeyController.dispose();
+    _localTokenController.dispose();
+    _autoDelayController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadLocalStatus() async {
+    if (_provider != ModelProvider.localQwen) {
+      return;
+    }
+    setState(() => _isLoadingLocalStatus = true);
+    try {
+      _localModelStatus = await widget.controller.getLocalModelStatus(
+        _localModelId,
+      );
+    } catch (error) {
+      _testMessage = error.toString();
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingLocalStatus = false);
+      }
+    }
+  }
+
+  Future<void> _selectProvider(ModelProvider provider) async {
+    if (_provider == provider) {
+      return;
+    }
+    setState(() {
+      _provider = provider;
+      _testMessage = null;
+    });
+    if (provider == ModelProvider.localQwen) {
+      await _loadLocalStatus();
+    }
+  }
+
+  Future<void> _selectLocalModel(String? value) async {
+    if (value == null || value == _localModelId) {
+      return;
+    }
+    setState(() {
+      _localModelId = value;
+      _testMessage = null;
+    });
+    await _loadLocalStatus();
+  }
+
+  double? _parsedAutoDelaySeconds() {
+    return double.tryParse(_autoDelayController.text.trim());
+  }
+
+  int? _parsedAutoDelayMs() {
+    final seconds = _parsedAutoDelaySeconds();
+    if (seconds == null) {
+      return null;
+    }
+    final milliseconds = (seconds * 1000).round();
+    if (milliseconds < ModelSettings.minAutoRecommendDelayMs ||
+        milliseconds > ModelSettings.maxAutoRecommendDelayMs) {
+      return null;
+    }
+    return milliseconds;
+  }
+
+  bool _canUseCurrentSettings() {
+    final delayMs = _parsedAutoDelayMs();
+    if (delayMs == null) {
+      return false;
+    }
+    switch (_provider) {
+      case ModelProvider.online:
+        return _baseUrlController.text.trim().isNotEmpty &&
+            _modelController.text.trim().isNotEmpty &&
+            _apiKeyController.text.trim().isNotEmpty;
+      case ModelProvider.localQwen:
+        return _localModelId.trim().isNotEmpty;
+    }
   }
 
   ModelSettings _settingsFromFields() {
     return ModelSettings(
+      provider: _provider,
       baseUrl: _baseUrlController.text.trim(),
       model: _modelController.text.trim(),
       apiKey: _apiKeyController.text.trim(),
+      localModelId: _localModelId.trim(),
+      localModelAccessToken: _localTokenController.text.trim(),
+      autoRecommendDelayMs:
+          _parsedAutoDelayMs() ?? ModelSettings.defaultAutoRecommendDelayMs,
     );
   }
 
@@ -1374,9 +1523,53 @@ class _SettingsDialogState extends State<_SettingsDialog> {
     }
   }
 
+  Future<void> _downloadLocalModel() async {
+    setState(() {
+      _isDownloadingLocalModel = true;
+      _downloadProgress = 0;
+      _testMessage = null;
+    });
+
+    try {
+      await widget.controller.downloadLocalModel(
+        _localModelId,
+        accessToken: _localTokenController.text.trim(),
+        onProgress: (progress) {
+          if (!mounted) {
+            return;
+          }
+          setState(() {
+            _downloadProgress = progress.fraction;
+          });
+        },
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _testMessage = '已下载 ${localModelById(_localModelId).displayName}。';
+        _downloadProgress = 1;
+      });
+      await _loadLocalStatus();
+    } catch (error) {
+      if (mounted) {
+        setState(() => _testMessage = error.toString());
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isDownloadingLocalModel = false);
+      }
+    }
+  }
+
   Future<void> _save() async {
     if (!_settingsFromFields().isComplete) {
       setState(() => _testMessage = '请先填写完整模型设置。');
+      return;
+    }
+
+    if (_parsedAutoDelayMs() == null) {
+      setState(() => _testMessage = '自动推荐等待时间需要在 0.5 到 30 秒之间。');
       return;
     }
 
@@ -1404,59 +1597,223 @@ class _SettingsDialogState extends State<_SettingsDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final selectedLocalModel = localModelById(_localModelId);
     return AlertDialog(
       title: const Row(
         children: [Icon(Icons.tune), SizedBox(width: 10), Text('模型设置')],
       ),
       content: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 560),
+        constraints: const BoxConstraints(maxWidth: 620),
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(
-                controller: _baseUrlController,
-                decoration: const InputDecoration(
-                  labelText: 'Endpoint',
-                  hintText: 'https://api.deepseek.com/v1',
-                  prefixIcon: Icon(Icons.link),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _modelController,
-                decoration: const InputDecoration(
-                  labelText: 'Model',
-                  hintText: 'deepseek-chat',
-                  prefixIcon: Icon(Icons.memory),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _apiKeyController,
-                obscureText: _obscureKey,
-                decoration: InputDecoration(
-                  labelText: 'API Key',
-                  prefixIcon: const Icon(Icons.key),
-                  suffixIcon: IconButton(
-                    tooltip: _obscureKey ? '显示' : '隐藏',
-                    onPressed: () => setState(() => _obscureKey = !_obscureKey),
-                    icon: Icon(
-                      _obscureKey
-                          ? Icons.visibility_outlined
-                          : Icons.visibility_off_outlined,
-                    ),
+              SegmentedButton<ModelProvider>(
+                segments: const [
+                  ButtonSegment<ModelProvider>(
+                    value: ModelProvider.online,
+                    icon: Icon(Icons.cloud_outlined),
+                    label: Text('在线模型'),
                   ),
+                  ButtonSegment<ModelProvider>(
+                    value: ModelProvider.localQwen,
+                    icon: Icon(Icons.download_for_offline_outlined),
+                    label: Text('本地 Qwen'),
+                  ),
+                ],
+                selected: {_provider},
+                onSelectionChanged: (selection) {
+                  _selectProvider(selection.first);
+                },
+              ),
+              const SizedBox(height: 12),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                child: _provider == ModelProvider.online
+                    ? Column(
+                        key: const ValueKey('online_settings'),
+                        children: [
+                          TextField(
+                            controller: _baseUrlController,
+                            decoration: const InputDecoration(
+                              labelText: 'Endpoint',
+                              hintText: 'https://api.deepseek.com/v1',
+                              prefixIcon: Icon(Icons.link),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: _modelController,
+                            decoration: const InputDecoration(
+                              labelText: 'Model',
+                              hintText: 'deepseek-chat',
+                              prefixIcon: Icon(Icons.memory),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: _apiKeyController,
+                            obscureText: _obscureKey,
+                            decoration: InputDecoration(
+                              labelText: 'API Key',
+                              prefixIcon: const Icon(Icons.key),
+                              suffixIcon: IconButton(
+                                tooltip: _obscureKey ? '显示' : '隐藏',
+                                onPressed: () =>
+                                    setState(() => _obscureKey = !_obscureKey),
+                                icon: Icon(
+                                  _obscureKey
+                                      ? Icons.visibility_outlined
+                                      : Icons.visibility_off_outlined,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          _InlineMessage(
+                            icon: Icons.info_outline,
+                            color: const Color(0xff5b6570),
+                            message: kIsWeb
+                                ? 'Web 端会把 Key 保存在当前浏览器本地环境。'
+                                : 'API Key 会保存在本机本地设置中。',
+                          ),
+                        ],
+                      )
+                    : Column(
+                        key: const ValueKey('local_settings'),
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          DropdownButtonFormField<LocalModelDefinition>(
+                            initialValue: selectedLocalModel,
+                            decoration: const InputDecoration(
+                              labelText: '本地模型',
+                              prefixIcon: Icon(Icons.developer_board),
+                            ),
+                            items: [
+                              for (final model in localQwenModels)
+                                DropdownMenuItem<LocalModelDefinition>(
+                                  value: model,
+                                  child: Text(
+                                    '${model.displayName}  ${model.sizeLabel}',
+                                  ),
+                                ),
+                            ],
+                            onChanged: (value) {
+                              _selectLocalModel(value?.id);
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          _InlineMessage(
+                            icon: Icons.info_outline,
+                            color: const Color(0xff5b6570),
+                            message: selectedLocalModel.description,
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: _localTokenController,
+                            obscureText: _obscureLocalToken,
+                            decoration: InputDecoration(
+                              labelText: 'Hugging Face Token',
+                              hintText: selectedLocalModel.requiresDownloadToken
+                                  ? '下载该模型需要 token'
+                                  : '可选，私有或限权模型需要',
+                              prefixIcon: const Icon(Icons.key_outlined),
+                              suffixIcon: IconButton(
+                                tooltip: _obscureLocalToken ? '显示' : '隐藏',
+                                onPressed: () => setState(
+                                  () =>
+                                      _obscureLocalToken = !_obscureLocalToken,
+                                ),
+                                icon: Icon(
+                                  _obscureLocalToken
+                                      ? Icons.visibility_outlined
+                                      : Icons.visibility_off_outlined,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          _InlineMessage(
+                            icon: _localModelStatus?.isDownloaded == true
+                                ? Icons.check_circle_outline
+                                : Icons.warning_amber_outlined,
+                            color: _localModelStatus?.isDownloaded == true
+                                ? const Color(0xff24845f)
+                                : const Color(0xff8b5b00),
+                            message:
+                                _localModelStatus?.message ?? '正在读取本地模型状态...',
+                          ),
+                          if (_isLoadingLocalStatus) ...[
+                            const SizedBox(height: 10),
+                            const LinearProgressIndicator(minHeight: 3),
+                          ],
+                          if (_downloadProgress != null &&
+                              _isDownloadingLocalModel) ...[
+                            const SizedBox(height: 10),
+                            LinearProgressIndicator(
+                              value: _downloadProgress,
+                              minHeight: 3,
+                            ),
+                          ],
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              TextButton.icon(
+                                onPressed:
+                                    (_localModelStatus?.canDownload ?? false) &&
+                                        !_isDownloadingLocalModel
+                                    ? _downloadLocalModel
+                                    : null,
+                                icon: _isDownloadingLocalModel
+                                    ? const SizedBox.square(
+                                        dimension: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.download),
+                                label: Text(
+                                  _localModelStatus?.canDownload == false
+                                      ? '不支持下载'
+                                      : _localModelStatus?.isDownloaded == true
+                                      ? '重新下载'
+                                      : '下载',
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  _localModelStatus?.canRunInference == true
+                                      ? '下载后 Desktop 可离线纠错；Web 和 App 会提示不支持。'
+                                      : '当前环境或模型没有可用的本地推理文件。',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _autoDelayController,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: '自动推荐等待时间',
+                  hintText: '2.0',
+                  suffixText: '秒',
+                  prefixIcon: Icon(Icons.timer_outlined),
                 ),
               ),
               const SizedBox(height: 12),
               _InlineMessage(
                 icon: Icons.info_outline,
                 color: const Color(0xff5b6570),
-                message: kIsWeb
-                    ? 'Web 端会把 Key 保存在当前浏览器本地环境。'
-                    : 'API Key 会保存在本机本地设置中。',
+                message: '停止编辑后按这个时间自动触发推荐。',
               ),
+              const SizedBox(height: 12),
               if (_testMessage != null) ...[
                 const SizedBox(height: 12),
                 _InlineMessage(
@@ -1477,7 +1834,7 @@ class _SettingsDialogState extends State<_SettingsDialog> {
         ListenableBuilder(
           listenable: _fieldListenable,
           builder: (context, _) {
-            final canUse = _settingsFromFields().isComplete;
+            final canUse = _canUseCurrentSettings();
             return Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -1570,25 +1927,38 @@ class _ModelStatusPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ready = settings.isComplete;
+    final isLocal = settings.isLocalQwen;
+    final color = !ready
+        ? const Color(0xfffff1d6)
+        : isLocal
+        ? const Color(0xfffff1d6)
+        : const Color(0xffe6f2ec);
+    final iconColor = !ready || isLocal
+        ? const Color(0xff8b5b00)
+        : const Color(0xff1d6f50);
     return Container(
       constraints: const BoxConstraints(maxWidth: 220),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: ready ? const Color(0xffe6f2ec) : const Color(0xfffff1d6),
+        color: color,
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            ready ? Icons.check_circle_outline : Icons.warning_amber_outlined,
+            !ready
+                ? Icons.warning_amber_outlined
+                : isLocal
+                ? Icons.download_for_offline_outlined
+                : Icons.check_circle_outline,
             size: 16,
-            color: ready ? const Color(0xff1d6f50) : const Color(0xff8b5b00),
+            color: iconColor,
           ),
           const SizedBox(width: 6),
           Flexible(
             child: Text(
-              ready ? settings.model : '未配置',
+              ready ? settings.displayName : '未配置',
               overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.labelMedium,
             ),

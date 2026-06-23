@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import '../models/correction_result.dart';
 import '../models/model_settings.dart';
+import 'local_model_manager.dart';
 
 abstract interface class CorrectionClient {
   Future<CorrectionResult> correctText({
@@ -25,10 +26,15 @@ class CorrectionException implements Exception {
 class CorrectionService implements CorrectionClient {
   CorrectionService({
     http.Client? client,
+    LocalModelManager? localModelManager,
     this.timeout = const Duration(seconds: 45),
-  }) : _client = client ?? http.Client();
+  }) : _client = client ?? http.Client(),
+       _localModelManager =
+           localModelManager ??
+           const UnsupportedLocalModelManager(LocalModelPackaging.web);
 
   final http.Client _client;
+  final LocalModelManager _localModelManager;
   final Duration timeout;
 
   static const _systemPrompt = '''
@@ -66,7 +72,20 @@ Rules:
       throw const CorrectionException('请输入需要纠错的英文或中英混写内容。');
     }
     if (!settings.isComplete) {
-      throw const CorrectionException('请先配置模型地址、模型名和 API Key。');
+      throw CorrectionException(
+        settings.isLocalQwen ? '请先选择本地 Qwen 模型。' : '请先配置模型地址、模型名和 API Key。',
+      );
+    }
+
+    if (settings.isLocalQwen) {
+      try {
+        return await _localModelManager.correctText(
+          text: input,
+          settings: settings,
+        );
+      } on LocalModelException catch (error) {
+        throw CorrectionException(error.message);
+      }
     }
 
     final uri = _chatCompletionsUri(settings.baseUrl);
