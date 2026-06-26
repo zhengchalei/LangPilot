@@ -31,9 +31,10 @@ class LocalSettingsStore implements SettingsStore {
 
     return ModelSettings(
       provider: ModelProvider.fromValue(preferences.getString(_providerKey)),
-      baseUrl: preferences.getString(_baseUrlKey) ?? '',
+      baseUrl:
+          preferences.getString(_baseUrlKey) ?? ModelSettings.defaultBaseUrl,
       apiKey: preferences.getString(_apiKeyKey) ?? '',
-      model: preferences.getString(_modelKey) ?? 'deepseek-chat',
+      model: preferences.getString(_modelKey) ?? ModelSettings.defaultModel,
       localModelId:
           preferences.getString(_localModelKey) ??
           ModelSettings.defaultLocalModelId,

@@ -1635,18 +1635,18 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                         children: [
                           TextField(
                             controller: _baseUrlController,
+                            readOnly: true,
                             decoration: const InputDecoration(
-                              labelText: 'Endpoint',
-                              hintText: 'https://api.deepseek.com/v1',
+                              labelText: 'Endpoint（默认）',
                               prefixIcon: Icon(Icons.link),
                             ),
                           ),
                           const SizedBox(height: 12),
                           TextField(
                             controller: _modelController,
+                            readOnly: true,
                             decoration: const InputDecoration(
-                              labelText: 'Model',
-                              hintText: 'deepseek-chat',
+                              labelText: 'Model（默认）',
                               prefixIcon: Icon(Icons.memory),
                             ),
                           ),

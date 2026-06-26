@@ -19,14 +19,16 @@ enum ModelProvider {
 class ModelSettings {
   const ModelSettings({
     this.provider = ModelProvider.online,
-    this.baseUrl = '',
+    this.baseUrl = defaultBaseUrl,
     this.apiKey = '',
-    this.model = 'deepseek-chat',
+    this.model = defaultModel,
     this.localModelId = defaultLocalModelId,
     this.localModelAccessToken = '',
     this.autoRecommendDelayMs = defaultAutoRecommendDelayMs,
   });
 
+  static const defaultBaseUrl = 'https://api.deepseek.com';
+  static const defaultModel = 'deepseek-v4-flash';
   static const defaultLocalModelId = 'Qwen/Qwen3.5-2B';
   static const defaultAutoRecommendDelayMs = 2000;
   static const minAutoRecommendDelayMs = 500;
