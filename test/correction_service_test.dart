@@ -123,7 +123,7 @@ void main() {
         isA<CorrectionException>().having(
           (error) => error.message,
           'message',
-          contains('Web 打包不支持本地 Qwen 模型下载或推理'),
+          contains('Web 打包不支持在端内执行 ModelScope 下载或本地推理'),
         ),
       ),
     );

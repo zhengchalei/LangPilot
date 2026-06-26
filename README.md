@@ -22,13 +22,24 @@ For online models, fill in:
 For local Qwen mode, the UI exposes:
 
 - `Qwen/Qwen3.5-0.5B`
+- `Qwen/Qwen3.5-0.8B`
 - `Qwen/Qwen3.5-2B`
 
 Current packaging support is explicit in the app:
 
-- Web: local Qwen download and inference are not supported. Use online mode.
-- Desktop: `Qwen/Qwen3.5-2B` downloads a public Q4_K_M GGUF runtime file derived from the model and can run offline correction locally. `Qwen/Qwen3.5-0.5B` downloads a GGUF runtime file from a token-gated Hugging Face repository, so fill in a Hugging Face token before downloading it.
-- App/mobile: local Qwen download and inference are not supported in the current build. Use online mode.
+- Desktop: downloads selected models with ModelScope CLI, for example `modelscope download --model Qwen/Qwen3.5-0.8B`.
+- Web: cannot execute ModelScope CLI or local inference in the browser. Use online mode.
+- App/mobile: can expose the same model choices and resource guidance, but cannot run `modelscope` inside the app. Offline mobile inference needs a native runtime and usually a quantized model.
+
+Model size guidance:
+
+| Model | Storage | Suggested device |
+| --- | --- | --- |
+| `Qwen/Qwen3.5-0.5B` | about 1-2 GB | 4 GB+ RAM; lightest option, lower quality |
+| `Qwen/Qwen3.5-0.8B` | about 2-4 GB | 6 GB+ RAM; balanced default |
+| `Qwen/Qwen3.5-2B` | about 5-8 GB | 8-12 GB+ RAM; better quality, slower |
+
+ModelScope downloads the original model files. The current embedded desktop inference path still needs a GGUF file or a native runtime adapter before offline correction can use those files directly.
 
 The model configuration and auto-recommend delay are stored locally on the current browser or desktop profile.
 

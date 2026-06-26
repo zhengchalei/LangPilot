@@ -175,7 +175,10 @@ void main() {
     await tester.tap(find.text('本地 Qwen'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Web 打包不支持本地 Qwen 模型下载或推理'), findsOneWidget);
+    expect(
+      find.textContaining('Web 打包不支持在端内执行 ModelScope 下载或本地推理'),
+      findsOneWidget,
+    );
     expect(find.text('不支持下载'), findsOneWidget);
   });
 

@@ -120,11 +120,11 @@ class UnsupportedLocalModelManager implements LocalModelManager {
   static String _unsupportedMessage(LocalModelPackaging packaging) {
     switch (packaging) {
       case LocalModelPackaging.web:
-        return 'Web 打包不支持本地 Qwen 模型下载或推理，请使用在线模型。';
+        return 'Web 打包不支持在端内执行 ModelScope 下载或本地推理，请使用在线模型。';
       case LocalModelPackaging.desktop:
-        return 'Desktop 打包不支持当前选择的本地 Qwen 模型，请选择可下载的 Qwen/Qwen3.5-2B 或使用在线模型。';
+        return 'Desktop 打包不支持当前本地模型，请先确认已安装 ModelScope CLI。';
       case LocalModelPackaging.app:
-        return 'App 打包不支持当前本地 Qwen 模型下载或推理，请使用在线模型。';
+        return 'App 打包不支持在端内执行 ModelScope CLI；移动端需要接入原生推理运行时后才能离线使用。';
     }
   }
 }

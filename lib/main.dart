@@ -1363,13 +1363,11 @@ class _SettingsDialogState extends State<_SettingsDialog> {
   late final TextEditingController _baseUrlController;
   late final TextEditingController _modelController;
   late final TextEditingController _apiKeyController;
-  late final TextEditingController _localTokenController;
   late final TextEditingController _autoDelayController;
   late final Listenable _fieldListenable;
   late ModelProvider _provider;
   late String _localModelId;
   bool _obscureKey = true;
-  bool _obscureLocalToken = true;
   bool _isTesting = false;
   bool _isSaving = false;
   bool _isLoadingLocalStatus = false;
@@ -1386,9 +1384,6 @@ class _SettingsDialogState extends State<_SettingsDialog> {
     _baseUrlController = TextEditingController(text: settings.baseUrl);
     _modelController = TextEditingController(text: settings.model);
     _apiKeyController = TextEditingController(text: settings.apiKey);
-    _localTokenController = TextEditingController(
-      text: settings.localModelAccessToken,
-    );
     _localModelId = settings.localModelId;
     _autoDelayController = TextEditingController(
       text: _formatSeconds(settings.autoRecommendDelay),
@@ -1397,7 +1392,6 @@ class _SettingsDialogState extends State<_SettingsDialog> {
       _baseUrlController,
       _modelController,
       _apiKeyController,
-      _localTokenController,
       _autoDelayController,
     ]);
     _loadLocalStatus();
@@ -1408,7 +1402,6 @@ class _SettingsDialogState extends State<_SettingsDialog> {
     _baseUrlController.dispose();
     _modelController.dispose();
     _apiKeyController.dispose();
-    _localTokenController.dispose();
     _autoDelayController.dispose();
     super.dispose();
   }
@@ -1494,7 +1487,7 @@ class _SettingsDialogState extends State<_SettingsDialog> {
       model: _modelController.text.trim(),
       apiKey: _apiKeyController.text.trim(),
       localModelId: _localModelId.trim(),
-      localModelAccessToken: _localTokenController.text.trim(),
+      localModelAccessToken: '',
       autoRecommendDelayMs:
           _parsedAutoDelayMs() ?? ModelSettings.defaultAutoRecommendDelayMs,
     );
@@ -1533,7 +1526,6 @@ class _SettingsDialogState extends State<_SettingsDialog> {
     try {
       await widget.controller.downloadLocalModel(
         _localModelId,
-        accessToken: _localTokenController.text.trim(),
         onProgress: (progress) {
           if (!mounted) {
             return;
@@ -1706,31 +1698,8 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                           _InlineMessage(
                             icon: Icons.info_outline,
                             color: const Color(0xff5b6570),
-                            message: selectedLocalModel.description,
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: _localTokenController,
-                            obscureText: _obscureLocalToken,
-                            decoration: InputDecoration(
-                              labelText: 'Hugging Face Token',
-                              hintText: selectedLocalModel.requiresDownloadToken
-                                  ? '下载该模型需要 token'
-                                  : '可选，私有或限权模型需要',
-                              prefixIcon: const Icon(Icons.key_outlined),
-                              suffixIcon: IconButton(
-                                tooltip: _obscureLocalToken ? '显示' : '隐藏',
-                                onPressed: () => setState(
-                                  () =>
-                                      _obscureLocalToken = !_obscureLocalToken,
-                                ),
-                                icon: Icon(
-                                  _obscureLocalToken
-                                      ? Icons.visibility_outlined
-                                      : Icons.visibility_off_outlined,
-                                ),
-                              ),
-                            ),
+                            message:
+                                '${selectedLocalModel.description}\n${selectedLocalModel.storageLabel}；${selectedLocalModel.resourceLabel}',
                           ),
                           const SizedBox(height: 12),
                           _InlineMessage(
@@ -1783,9 +1752,7 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Text(
-                                  _localModelStatus?.canRunInference == true
-                                      ? '下载后 Desktop 可离线纠错；Web 和 App 会提示不支持。'
-                                      : '当前环境或模型没有可用的本地推理文件。',
+                                  'Linux 需先安装 ModelScope CLI；当前内置离线纠错仍需要 GGUF 或原生推理运行时。',
                                   style: Theme.of(context).textTheme.bodySmall,
                                 ),
                               ),
